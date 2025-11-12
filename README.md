@@ -1,5 +1,4 @@
-# Real-Time Anomaly Prediction API
-
+Full Stack MLOps Real Time Monitoring Dashboard project
 This project provides a mock API for a real-time anomaly prediction model, designed to be a backend for a full-stack MLOps project. It includes features for real-time prediction, model health monitoring, and historical data reporting.
 
 ## Features
