@@ -34,3 +34,8 @@ This project provides a mock API for a real-time anomaly prediction model, desig
 ## Frontend
 
 The frontend is a single `index.html` file that uses Tailwind CSS for styling and Chart.js for data visualization. It communicates with the backend API to display real-time data and model health metrics.
+
+
+
+<img width="1135" height="751" alt="image" src="https://github.com/user-attachments/assets/3e4016c1-b68c-4721-9aa0-a3c49cb552e4" />
+
