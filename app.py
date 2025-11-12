@@ -1,9 +1,10 @@
 import json
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import List
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -37,13 +38,21 @@ class ModelHealth(BaseModel):
     data_drift_metric: float
     serving_status: str
 
+class ReportData(BaseModel):
+    """Schema for historical report data."""
+    id: int
+    timestamp: str
+    severity: str
+    description: str
+
+
 # --- Mock Data Generation ---
 
 def generate_prediction():
     """Generates a mock real-time prediction point."""
     now_str = datetime.now().isoformat()
     
-    # 90% chance of normal behavior
+    # 10% chance of anomaly
     is_anomaly = random.random() < 0.1
     
     if is_anomaly:
@@ -62,12 +71,23 @@ def generate_prediction():
         is_anomaly=is_anomaly
     )
 
-# Static mock health data (showcases versioning, a key MLOps component)
+def generate_reports() -> List[ReportData]:
+    """Generates a list of mock historical anomaly reports."""
+    reports = []
+    now = datetime.now()
+    for i in range(5):
+        report_time = now - timedelta(days=random.randint(1, 30), hours=random.randint(1, 23))
+        severity = random.choice(["High", "Medium", "Low"])
+        description = f"Anomaly detected on sensor group {chr(random.randint(65, 70))} with severity: {severity}"
+        reports.append(ReportData(id=i+1, timestamp=report_time.isoformat(), severity=severity, description=description))
+    return reports
+
+# Static mock health data
 MOCK_MODEL_HEALTH = ModelHealth(
-    model_version="v2.1.3",
-    last_trained="2025-11-10T14:30:00Z",
-    accuracy=0.975,
-    data_drift_metric=0.15, # Anything > 0.2 might be flagged
+    model_version="v3.0.0",
+    last_trained="2026-01-15T10:00:00Z",
+    accuracy=0.98,
+    data_drift_metric=0.12,
     serving_status="Healthy"
 )
 
@@ -80,21 +100,15 @@ def read_root():
 
 @app.get("/predict", response_model=AnomalyPrediction, summary="Get Real-Time Prediction")
 def get_prediction():
-    """
-    Returns a single, real-time prediction from the mocked model.
-    The data simulates a sensor reading and an anomaly probability score.
-    """
+    """Returns a single, real-time prediction from the mocked model."""
     return generate_prediction()
 
 @app.get("/health", response_model=ModelHealth, summary="Get MLOps Model Health Metrics")
 def get_health():
-    """
-    Returns mock metrics that would typically be logged by MLflow or a custom monitoring tool,
-    demonstrating the MLOps component.
-    """
+    """Returns mock metrics for the MLOps dashboard."""
     return MOCK_MODEL_HEALTH
 
-# Example of a Dockerfile/GCP-ready structure for the README.md:
-# CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "80"]
-
-# To run this: pip install uvicorn fastapi pydantic. Then: uvicorn app:app --reload
+@app.get("/reports", response_model=List[ReportData], summary="Get Historical Anomaly Reports")
+def get_reports():
+    """Returns a list of mock historical anomaly reports."""
+    return generate_reports()
