@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MLOps Anomaly Dashboard</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Chart.js for data visualization -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        /* Custom styles for aesthetic */
+        body { font-family: 'Inter', sans-serif; }
+        .card { transition: all 0.3s ease; }
+        .anomaly-alert { animation: pulse-red 1s infinite alternate; }
+        @keyframes pulse-red {
+            from { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            to { box-shadow: 0 0 10px 5px rgba(239, 68, 68, 0.9); }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen p-4 sm:p-8">
+
+    <div class="max-w-7xl mx-auto">
+        <h1 class="text-4xl font-extrabold text-gray-900 mb-2">Real-Time Anomaly Monitoring</h1>
+        <p class="text-lg text-gray-500 mb-8">Full-Stack MLOps Pipeline Demo | Showcases Model Monitoring and Production Deployment</p>
+
+        <!-- Model Health Status Section -->
+        <div id="model-health" class="grid md:grid-cols-4 gap-6 mb-8">
+            <!-- Cards will be injected here -->
+        </div>
+
+        <!-- Real-Time Prediction Chart and Alert -->
+        <div class="grid lg:grid-cols-3 gap-6">
+            <!-- Chart Container (Takes 2/3 width on large screens) -->
+            <div class="lg:col-span-2 bg-white p-6 rounded-xl shadow-lg border border-gray-100 card">
+                <h2 class="text-2xl font-semibold text-gray-800 mb-4">Live Prediction Feed</h2>
+                <div class="relative h-96">
+                    <canvas id="predictionChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Anomaly Alert Panel (Takes 1/3 width on large screens) -->
+            <div class="lg:col-span-1 flex flex-col bg-white p-6 rounded-xl shadow-lg border border-gray-100 card">
+                <h2 class="text-2xl font-semibold text-gray-800 mb-4">Current Status</h2>
+                
+                <div id="anomaly-panel" class="p-6 rounded-xl flex flex-col items-center justify-center flex-grow text-center transition-all duration-500">
+                    <svg id="status-icon" class="w-16 h-16 text-green-500 mb-4" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>
+                    <p id="status-text" class="text-2xl font-bold text-green-600">All Systems Normal</p>
+                    <p id="score-text" class="text-sm text-gray-500 mt-2">Latest Score: 0.1234</p>
+                </div>
+
+                <button onclick="togglePolling()" id="toggle-button" class="mt-4 w-full py-2 px-4 bg-indigo-600 text-white font-medium rounded-lg shadow-md hover:bg-indigo-700 transition duration-150">
+                    Stop Real-Time Feed
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+    <script type="module">
+        // --- Configuration ---
+        const API_URL = 'http://127.0.0.1:8000'; // Change to your deployed FastAPI URL if hosted!
+        const POLLING_INTERVAL = 2000; // 2 seconds
+
+        // --- Chart Setup (Chart.js) ---
+        const CHART_HISTORY_SIZE = 15;
+        const ctx = document.getElementById('predictionChart').getContext('2d');
+        const predictionChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [], // Timestamps
+                datasets: [
+                    {
+                        label: 'Feature Value',
+                        data: [],
+                        borderColor: '#4f46e5', // Indigo-600
+                        tension: 0.2,
+                        yAxisID: 'y1',
+                        pointRadius: 3,
+                    },
+                    {
+                        label: 'Anomaly Score',
+                        data: [],
+                        borderColor: '#fbbf24', // Amber-400
+                        tension: 0.2,
+                        yAxisID: 'y2',
+                        pointRadius: 3,
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                    },
+                    title: {
+                        display: false,
+                    }
+                },
+                scales: {
+                    x: {
+                        display: true,
+                        title: {
+                            display: true,
+                            text: 'Time (Last ' + CHART_HISTORY_SIZE + ' Points)'
+                        }
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        title: {
+                            display: true,
+                            text: 'Feature Value'
+                        }
+                    },
+                    y2: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        grid: {
+                            drawOnChartArea: false, // Only relevant if the first axis is drawn
+                        },
+                        min: 0,
+                        max: 1.0,
+                        title: {
+                            display: true,
+                            text: 'Anomaly Score (0 to 1)'
+                        }
+                    }
+                }
+            }
+        });
+
+        let pollingTimer = null;
+        let isPolling = true;
+
+        // --- UI Elements ---
+        const anomalyPanel = document.getElementById('anomaly-panel');
+        const statusIcon = document.getElementById('status-icon');
+        const statusText = document.getElementById('status-text');
+        const scoreText = document.getElementById('score-text');
+        const modelHealthContainer = document.getElementById('model-health');
+        const toggleButton = document.getElementById('toggle-button');
+
+        // --- Core Functions ---
+
+        /**
+         * Fetches a new prediction and updates the chart/status panel.
+         */
+        async function fetchPrediction() {
+            try {
+                const response = await fetch(`${API_URL}/predict`);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const data = await response.json();
+
+                const time = new Date(data.timestamp).toLocaleTimeString();
+                
+                // 1. Update Chart Data
+                predictionChart.data.labels.push(time);
+                predictionChart.data.datasets[0].data.push(data.feature_value);
+                predictionChart.data.datasets[1].data.push(data.prediction_score);
+                
+                // Trim history
+                if (predictionChart.data.labels.length > CHART_HISTORY_SIZE) {
+                    predictionChart.data.labels.shift();
+                    predictionChart.data.datasets[0].data.shift();
+                    predictionChart.data.datasets[1].data.shift();
+                }
+
+                predictionChart.update();
+
+                // 2. Update Status Panel (Anomaly Check)
+                updateStatusPanel(data.is_anomaly, data.prediction_score);
+
+            } catch (error) {
+                console.error("Error fetching prediction:", error);
+                updateStatusPanel(false, 'N/A', "API Disconnected", "text-red-600", "bg-red-50 anomaly-alert");
+            }
+        }
+
+        /**
+         * Updates the UI panel based on the latest prediction.
+         * @param {boolean} isAnomaly - Whether the prediction flagged an anomaly.
+         * @param {number} score - The anomaly score.
+         * @param {string} statusMsg - Custom status message.
+         * @param {string} iconColor - Tailwind class for icon color.
+         * @param {string} panelClass - Tailwind class for panel background/pulse.
+         */
+        function updateStatusPanel(isAnomaly, score, statusMsg = '', iconColor = '', panelClass = '') {
+            // Reset classes
+            anomalyPanel.className = 'p-6 rounded-xl flex flex-col items-center justify-center flex-grow text-center transition-all duration-500';
+            statusIcon.className = 'w-16 h-16 mb-4';
+            
+            if (isAnomaly) {
+                anomalyPanel.classList.add('bg-red-100', 'anomaly-alert');
+                statusIcon.classList.add('text-red-500');
+                statusIcon.innerHTML = '<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path>';
+                statusText.className = 'text-2xl font-bold text-red-600';
+                statusText.textContent = 'MAJOR ANOMALY DETECTED';
+            } else {
+                anomalyPanel.classList.add('bg-green-50');
+                statusIcon.classList.add('text-green-500');
+                statusIcon.innerHTML = '<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>';
+                statusText.className = 'text-2xl font-bold text-green-600';
+                statusText.textContent = statusMsg || 'All Systems Normal';
+            }
+
+            scoreText.textContent = `Latest Score: ${typeof score === 'number' ? score.toFixed(4) : score}`;
+        }
+
+        /**
+         * Fetches and displays key model health metrics (MLOps component).
+         */
+        async function fetchModelHealth() {
+            try {
+                const response = await fetch(`${API_URL}/health`);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const data = await response.json();
+
+                const healthCards = [
+                    { title: "Model Version", value: data.model_version, color: "bg-indigo-500" },
+                    { title: "Training Accuracy", value: `${(data.accuracy * 100).toFixed(2)}%`, color: "bg-green-500" },
+                    { title: "Data Drift Score", value: data.data_drift_metric.toFixed(3), color: data.data_drift_metric > 0.2 ? "bg-red-500" : "bg-yellow-500" },
+                    { title: "Serving Status", value: data.serving_status, color: data.serving_status === "Healthy" ? "bg-green-500" : "bg-red-500" }
+                ];
+
+                modelHealthContainer.innerHTML = healthCards.map(card => `
+                    <div class="card bg-white rounded-xl shadow-md overflow-hidden transform hover:scale-[1.01] transition duration-300">
+                        <div class="${card.color} text-white p-4 text-center">
+                            <p class="text-sm font-light">${card.title}</p>
+                            <p class="text-3xl font-bold mt-1">${card.value}</p>
+                        </div>
+                    </div>
+                `).join('');
+
+            } catch (error) {
+                console.error("Error fetching model health:", error);
+                modelHealthContainer.innerHTML = `
+                    <div class="md:col-span-4 bg-red-100 p-4 rounded-lg text-red-700 font-medium">
+                        Model Health API disconnected. Ensure the Python FastAPI server is running.
+                    </div>`;
+            }
+        }
+        
+        /**
+         * Starts the real-time polling loop.
+         */
+        function startPolling() {
+            if (pollingTimer === null) {
+                fetchPrediction(); // Initial fetch
+                pollingTimer = setInterval(fetchPrediction, POLLING_INTERVAL);
+                toggleButton.textContent = "Stop Real-Time Feed";
+                toggleButton.classList.replace('bg-green-600', 'bg-indigo-600');
+                isPolling = true;
+            }
+        }
+
+        /**
+         * Stops the real-time polling loop.
+         */
+        function stopPolling() {
+            clearInterval(pollingTimer);
+            pollingTimer = null;
+            toggleButton.textContent = "Start Real-Time Feed";
+            toggleButton.classList.replace('bg-indigo-600', 'bg-green-600');
+            isPolling = false;
+        }
+
+        /**
+         * Toggles the polling state. Exported for the button click.
+         */
+        window.togglePolling = function() {
+            if (isPolling) {
+                stopPolling();
+            } else {
+                startPolling();
+            }
+        }
+
+        // --- Initialization ---
+        fetchModelHealth(); // Fetch static health data once
+        startPolling();      // Start the real-time prediction feed
+    </script>
+</body>
+</html>
