@@ -1,6 +1,10 @@
 # Full Stack MLOps Real Time Monitoring Dashboard project
 This project provides a mock API for a real-time anomaly prediction model, designed to be a backend for a full-stack MLOps project. It includes features for real-time prediction, model health monitoring, and historical data reporting.
 
+
+<img width="1022" height="487" alt="image" src="https://github.com/user-attachments/assets/1c42eb9e-4824-4edc-bbdf-9b2cf28bdae6" />
+
+
 ## Features
 
 - **Real-Time Predictions**: Get anomaly predictions in real-time.
